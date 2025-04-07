@@ -11,7 +11,9 @@ document.addEventListener('DOMContentLoaded', function() {
         d3.csv('data/processed/trade_summary.csv'),
         d3.json('data/processed/trade_matrix.json'),
         d3.json('data/processed/trade_network.json'),
-        d3.csv('data/processed/yearly_trade_summary.csv')
+        d3.csv('data/processed/yearly_trade_summary.csv'),
+        d3.json('https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson'),
+        d3.csv('data/processed/sector_trade_flows.csv')
     ]).then(function(files) {
         console.log("All data files loaded successfully");
         const tradeFlowsData = files[0];
@@ -19,11 +21,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const tradeMatrixData = files[2];
         const tradeNetworkData = files[3];
         const yearlyTradeData = files[4];
+        const worldGeoData = files[5];
+        const sectorTradeData = files[6];
         
         console.log("Trade summary data count:", tradeSummaryData.length);
         console.log("Trade network nodes:", tradeNetworkData.nodes.length);
         console.log("Trade matrix countries:", tradeMatrixData.countries.length);
         console.log("Yearly trade data records:", yearlyTradeData ? yearlyTradeData.length : "Not available");
+        console.log("Sector trade data records:", sectorTradeData ? sectorTradeData.length : "Not available");
         
         // Calculate key economic indicators
         calculateEconomicIndicators(tradeSummaryData, tradeMatrixData);
@@ -36,6 +41,8 @@ document.addEventListener('DOMContentLoaded', function() {
             createTopExportersChart(tradeSummaryData);
             createTopImportersChart(tradeSummaryData);
             createHistoricalTrendChart(yearlyTradeData || tradeFlowsData, tradeSummaryData);
+            createGeographicMap(tradeFlowsData, tradeSummaryData, worldGeoData);
+            createSectorNetworkGraph(sectorTradeData || tradeFlowsData, 'agriculture');
             console.log("All visualizations created successfully");
         } catch (error) {
             console.error("Error creating visualizations:", error);
@@ -65,8 +72,49 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Redraw historical trend chart
                     d3.select('#history-chart').select('svg').remove();
                     createHistoricalTrendChart(yearlyTradeData || tradeFlowsData, tradeSummaryData);
+                } else if (event.target.id === 'map-tab') {
+                    // Redraw geographic map
+                    d3.select('#map-chart').select('svg').remove();
+                    createGeographicMap(tradeFlowsData, tradeSummaryData, worldGeoData);
+                } else if (event.target.id === 'sectors-tab') {
+                    // Find the active sector button
+                    const activeSectorBtn = document.querySelector('#sectors-panel .btn-group button.active');
+                    const sectorId = activeSectorBtn ? activeSectorBtn.id.replace('sector-', '') : 'agriculture';
+                    
+                    // Redraw sector network
+                    d3.select('#sector-chart').select('svg').remove();
+                    createSectorNetworkGraph(sectorTradeData || tradeFlowsData, sectorId);
                 }
             });
+        });
+        
+        // Set up sector button event listeners
+        document.querySelectorAll('#sectors-panel .btn-group button').forEach(button => {
+            button.addEventListener('click', function() {
+                // Update active button
+                document.querySelectorAll('#sectors-panel .btn-group button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                this.classList.add('active');
+                
+                // Get sector from button ID
+                const sectorId = this.id.replace('sector-', '');
+                
+                // Redraw sector network
+                d3.select('#sector-chart').select('svg').remove();
+                createSectorNetworkGraph(sectorTradeData || tradeFlowsData, sectorId);
+            });
+        });
+        
+        // Set up show all countries checkbox
+        document.getElementById('sector-show-all').addEventListener('change', function() {
+            // Find the active sector button
+            const activeSectorBtn = document.querySelector('#sectors-panel .btn-group button.active');
+            const sectorId = activeSectorBtn ? activeSectorBtn.id.replace('sector-', '') : 'agriculture';
+            
+            // Redraw sector network
+            d3.select('#sector-chart').select('svg').remove();
+            createSectorNetworkGraph(sectorTradeData || tradeFlowsData, sectorId);
         });
     }).catch(function(error) {
         console.error('Error loading data files:', error);
@@ -1566,17 +1614,17 @@ function createHistoricalTrendChart(tradeData, tradeSummaryData) {
                         .attr('stroke-width', 2);
                 })
                 .on('mouseout', function() {
+                    // Restore original appearance
+                    d3.select(this)
+                        .attr('r', 5)
+                        .attr('stroke', 'none');
+                    
                     // Hide tooltip
                     d3.select('#tooltip')
                         .transition()
                         .duration(500)
                         .style('opacity', 0)
                         .style('display', 'none');
-                    
-                    // Remove highlight
-                    d3.select(this)
-                        .attr('r', 5)
-                        .attr('stroke', 'none');
                 });
             
             // Add country label at the end of each line
@@ -1599,7 +1647,8 @@ function createHistoricalTrendChart(tradeData, tradeSummaryData) {
         legend.append('text')
             .attr('x', 0)
             .attr('y', -10)
-            .style('font-weight', 'bold')
+            .attr('font-weight', 'bold')
+            .attr('fill', '#000000')
             .text(getMetricLabel(currentMetric));
         
         // Add legend items
@@ -1668,4 +1717,917 @@ function createHistoricalTrendChart(tradeData, tradeSummaryData) {
     
     // Draw initial chart
     updateChart();
+}
+
+// Geographic Map Visualization
+function createGeographicMap(tradeFlowsData, tradeSummaryData, worldGeoData) {
+    console.log("Creating geographic map visualization...");
+    const container = document.getElementById('map-chart');
+    if (!container) {
+        console.error("Map chart container not found");
+        return;
+    }
+    
+    const width = container.clientWidth;
+    const height = container.clientHeight || 600;
+    const margin = {top: 20, right: 20, bottom: 20, left: 20};
+    const innerWidth = width - margin.left - margin.right;
+    const innerHeight = height - margin.top - margin.bottom;
+    
+    // Define regions for grouping
+    const regions = {
+        'North America': ['USA', 'CAN', 'MEX'],
+        'Europe': ['DEU', 'GBR', 'FRA', 'ITA', 'ESP', 'NLD'],
+        'Asia-Pacific': ['CHN', 'JPN', 'KOR', 'AUS', 'IND'],
+        'South America': ['BRA']
+    };
+    
+    // Colors for regions
+    const regionColors = {
+        'North America': '#e74c3c',   // Bright red
+        'Europe': '#3498db',          // Bright blue
+        'Asia-Pacific': '#2ecc71',    // Bright green
+        'South America': '#f39c12',   // Bright orange
+        'Other': '#9b59b6'            // Purple
+    };
+    
+    // Country code to ISO3 mapping based on our trade network data
+    const countryCodesISO3 = {
+        '36': 'AUS', '76': 'BRA', '124': 'CAN', '156': 'CHN', '251': 'FRA',
+        '276': 'DEU', '699': 'IND', '380': 'ITA', '392': 'JPN', '484': 'MEX',
+        '528': 'NLD', '410': 'KOR', '724': 'ESP', '826': 'GBR', '842': 'USA'
+    };
+    
+    // Country coordinates (approximate capital or center point for better visualization)
+    const countryCoordinates = {
+        'AUS': [149.13, -35.28],  // Canberra
+        'BRA': [-47.93, -15.78],  // Brasilia
+        'CAN': [-75.70, 45.42],   // Ottawa
+        'CHN': [116.39, 39.91],   // Beijing
+        'FRA': [2.35, 48.85],     // Paris
+        'DEU': [13.40, 52.52],    // Berlin
+        'IND': [77.21, 28.61],    // New Delhi
+        'ITA': [12.48, 41.89],    // Rome
+        'JPN': [139.76, 35.68],   // Tokyo
+        'MEX': [-99.13, 19.43],   // Mexico City
+        'NLD': [4.90, 52.37],     // Amsterdam
+        'KOR': [126.98, 37.57],   // Seoul
+        'ESP': [-3.70, 40.42],    // Madrid
+        'GBR': [-0.13, 51.51],    // London
+        'USA': [-77.03, 38.90]    // Washington DC
+    };
+    
+    // Process trade flow data for the map
+    const countryNames = {};
+    const tradeLinks = [];
+    
+    // First pass: get country names
+    tradeFlowsData.forEach(d => {
+        const reporterCode = d.reporter_code;
+        const partnerCode = d.partner_code;
+        
+        if (reporterCode in countryCodesISO3) {
+            countryNames[countryCodesISO3[reporterCode]] = d.reporter;
+        }
+        
+        if (partnerCode in countryCodesISO3) {
+            countryNames[countryCodesISO3[partnerCode]] = d.partner;
+        }
+    });
+    
+    // Get the most recent year in the data
+    const years = Array.from(new Set(tradeFlowsData.map(d => d.year))).sort();
+    const mostRecentYear = years[years.length - 1];
+    
+    // Second pass: build trade flows between our main countries
+    tradeFlowsData.forEach(d => {
+        // Only use the most recent year and flows between main countries
+        if (d.year === mostRecentYear && 
+            d.reporter_code in countryCodesISO3 && 
+            d.partner_code in countryCodesISO3) {
+            
+            const sourceISO = countryCodesISO3[d.reporter_code];
+            const targetISO = countryCodesISO3[d.partner_code];
+            
+            // Skip self-trade
+            if (sourceISO === targetISO) return;
+            
+            // Get the region for each country
+            let sourceRegion = 'Other';
+            let targetRegion = 'Other';
+            
+            for (const [region, countries] of Object.entries(regions)) {
+                if (countries.includes(sourceISO)) {
+                    sourceRegion = region;
+                }
+                if (countries.includes(targetISO)) {
+                    targetRegion = region;
+                }
+            }
+            
+            tradeLinks.push({
+                source: sourceISO,
+                target: targetISO,
+                sourceName: countryNames[sourceISO],
+                targetName: countryNames[targetISO],
+                sourceRegion: sourceRegion,
+                targetRegion: targetRegion,
+                flow: d.flow,
+                value: +d.value
+            });
+        }
+    });
+    
+    // Group by country pairs to combine import and export flows
+    const combinedLinks = {};
+    
+    tradeLinks.forEach(link => {
+        const pairKey = [link.source, link.target].sort().join('-');
+        
+        if (!combinedLinks[pairKey]) {
+            combinedLinks[pairKey] = {
+                source: link.source,
+                target: link.target,
+                sourceName: link.sourceName,
+                targetName: link.targetName,
+                sourceRegion: link.sourceRegion,
+                targetRegion: link.targetRegion,
+                imports: 0,
+                exports: 0,
+                total: 0
+            };
+        }
+        
+        if (link.flow === 'import') {
+            // This is the target importing from source
+            combinedLinks[pairKey].imports += link.value;
+        } else {
+            // This is the source exporting to target
+            combinedLinks[pairKey].exports += link.value;
+        }
+        
+        combinedLinks[pairKey].total += link.value;
+    });
+    
+    // Convert to array
+    const mapLinks = Object.values(combinedLinks);
+    
+    // Sort by total value
+    mapLinks.sort((a, b) => b.total - a.total);
+    
+    // Create SVG
+    const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', [0, 0, width, height]);
+    
+    // Map projection
+    const projection = d3.geoMercator()
+        .scale(width / 2 / Math.PI)
+        .translate([width / 2, height / 1.5]);
+    
+    // Path generator
+    const path = d3.geoPath().projection(projection);
+    
+    // Draw the map background
+    svg.append('g')
+        .selectAll('path')
+        .data(worldGeoData.features)
+        .join('path')
+        .attr('d', path)
+        .attr('fill', '#34495e')
+        .attr('stroke', '#2c3e50')
+        .attr('stroke-width', 0.5);
+    
+    // Create a group for country points and trade flows
+    const g = svg.append('g');
+    
+    // Add country circles
+    const countryPoints = g.selectAll('.country-point')
+        .data(Object.entries(countryCoordinates))
+        .join('circle')
+        .attr('class', 'country-point')
+        .attr('cx', d => projection(d[1])[0])
+        .attr('cy', d => projection(d[1])[1])
+        .attr('r', 7)
+        .attr('fill', d => {
+            // Find the region of this country
+            let region = 'Other';
+            for (const [r, countries] of Object.entries(regions)) {
+                if (countries.includes(d[0])) {
+                    region = r;
+                    break;
+                }
+            }
+            return regionColors[region];
+        })
+        .attr('stroke', '#000000')
+        .attr('stroke-width', 1)
+        .attr('data-country', d => d[0])
+        .on('mouseover', function(event, d) {
+            // Highlight this country
+            d3.select(this)
+                .attr('r', 10)
+                .attr('stroke-width', 2);
+                
+            // Get country name
+            const countryName = countryNames[d[0]];
+            
+            // Show tooltip
+            const tooltip = d3.select('#tooltip');
+            tooltip.transition()
+                .duration(200)
+                .style('opacity', 0.9)
+                .style('display', 'block');
+                
+            tooltip.html(`<strong>${countryName}</strong>`)
+                .style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 28) + 'px');
+        })
+        .on('mouseout', function() {
+            // Restore original appearance
+            d3.select(this)
+                .attr('r', 7)
+                .attr('stroke', 'none');
+                
+            // Hide tooltip
+            d3.select('#tooltip')
+                .transition()
+                .duration(500)
+                .style('opacity', 0)
+                .style('display', 'none');
+        });
+    
+    // Add country labels
+    g.selectAll('.country-label')
+        .data(Object.entries(countryCoordinates))
+        .join('text')
+        .attr('class', 'country-label')
+        .attr('x', d => projection(d[1])[0] + 12)
+        .attr('y', d => projection(d[1])[1] + 4)
+        .text(d => d[0])
+        .attr('font-size', '10px')
+        .attr('fill', '#000000')
+        .attr('text-anchor', 'start')
+        .attr('data-country', d => d[0]);
+    
+    // Function to create trade flow paths
+    function createArcPath(source, target) {
+        const sourceCoords = projection(countryCoordinates[source]);
+        const targetCoords = projection(countryCoordinates[target]);
+        
+        const dx = targetCoords[0] - sourceCoords[0];
+        const dy = targetCoords[1] - sourceCoords[1];
+        const dr = Math.sqrt(dx * dx + dy * dy);
+        
+        // Determine if this is a major flow path
+        let arcScale = 1.5; // Default scale
+        
+        // Draw a curved path between countries
+        return `M${sourceCoords[0]},${sourceCoords[1]}A${dr * arcScale},${dr * arcScale} 0 0,1 ${targetCoords[0]},${targetCoords[1]}`;
+    }
+    
+    // Function to draw all flows
+    function drawFlows(filter) {
+        // Remove existing flows
+        g.selectAll('.trade-flow').remove();
+        
+        // Filter the links based on the selected flow type
+        let filteredLinks = mapLinks;
+        
+        if (filter === 'exports') {
+            filteredLinks = mapLinks.filter(d => d.exports > 0);
+        } else if (filter === 'imports') {
+            filteredLinks = mapLinks.filter(d => d.imports > 0);
+        }
+        
+        // Get the country filter
+        const countryFilter = document.getElementById('map-country-filter').value;
+        
+        if (countryFilter !== 'all') {
+            filteredLinks = filteredLinks.filter(d => 
+                d.source === countryFilter || d.target === countryFilter
+            );
+        }
+        
+        // Draw the links with animation path
+        const flows = g.selectAll('.trade-flow')
+            .data(filteredLinks)
+            .join('path')
+            .attr('class', 'trade-flow')
+            .attr('d', d => createArcPath(d.source, d.target))
+            .attr('fill', 'none')
+            .attr('stroke', d => {
+                // Use regional colors - use source region color
+                return regionColors[d.sourceRegion];
+            })
+            .attr('stroke-width', d => {
+                // Scale by value, but keep a reasonable range
+                return Math.max(0.5, Math.min(5, Math.log10(d.total) / 2));
+            })
+            .attr('stroke-opacity', 0.6)
+            .attr('data-source', d => d.source)
+            .attr('data-target', d => d.target)
+            .on('mouseover', function(event, d) {
+                // Highlight this flow
+                d3.select(this)
+                    .attr('stroke-opacity', 1)
+                    .attr('stroke-width', d => {
+                        return Math.max(1, Math.min(7, Math.log10(d.total) / 2 + 2));
+                    });
+                
+                // Highlight the connected countries
+                d3.selectAll(`.country-point[data-country="${d.source}"], .country-point[data-country="${d.target}"]`)
+                    .attr('r', 10)
+                    .attr('stroke-width', 2);
+                
+                // Format the value
+                const formatter = new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    notation: 'compact',
+                    maximumFractionDigits: 1
+                });
+                
+                // Show tooltip
+                const tooltip = d3.select('#tooltip');
+                tooltip.transition()
+                    .duration(200)
+                    .style('opacity', 0.9)
+                    .style('display', 'block');
+                
+                tooltip.html(`
+                    <strong>${d.sourceName} ↔ ${d.targetName}</strong><br>
+                    Total Trade: ${formatter.format(d.total)}<br>
+                    Exports: ${formatter.format(d.exports)}<br>
+                    Imports: ${formatter.format(d.imports)}
+                `)
+                .style('left', (event.pageX + 10) + 'px')
+                .style('top', (event.pageY - 28) + 'px');
+            })
+            .on('mouseout', function() {
+                // Restore original appearance
+                d3.select(this)
+                    .attr('stroke-opacity', 0.6)
+                    .attr('stroke-width', d => {
+                        return Math.max(0.5, Math.min(5, Math.log10(d.total) / 2));
+                    });
+                
+                // Restore country points
+                d3.selectAll('.country-point')
+                    .attr('r', 7)
+                    .attr('stroke-width', 1);
+                
+                // Hide tooltip
+                d3.select('#tooltip')
+                    .transition()
+                    .duration(500)
+                    .style('opacity', 0)
+                    .style('display', 'none');
+            });
+        
+        // If animation is checked, add moving dots along the paths
+        if (document.getElementById('map-animate').checked) {
+            // Add animated dots
+            flows.each(function(d) {
+                const path = d3.select(this);
+                const pathLength = path.node().getTotalLength();
+                
+                // Add animated flow markers
+                const numDots = Math.min(5, Math.max(1, Math.floor(Math.log10(d.total)) - 7));
+                
+                for (let i = 0; i < numDots; i++) {
+                    g.append('circle')
+                        .attr('class', 'flow-dot')
+                        .attr('r', 3)
+                        .attr('fill', regionColors[d.sourceRegion])
+                        .style('mix-blend-mode', 'screen')
+                        .append('animate')
+                        .attr('attributeName', 'transform')
+                        .attr('begin', `${i * (1.0 / numDots)}s`)
+                        .attr('repeatCount', 'indefinite')
+                        .attr('dur', '2s')
+                        .attr('keyTimes', '0;1')
+                        .attr('keySplines', '0.5 0 0.5 1')
+                        .attr('calcMode', 'spline')
+                        .attr('values', function() {
+                            let values = [];
+                            for (let i = 0; i <= 1; i += 0.01) {
+                                const point = path.node().getPointAtLength(i * pathLength);
+                                values.push(`translate(${point.x}, ${point.y})`);
+                            }
+                            return values.join(';');
+                        });
+                }
+            });
+        }
+    }
+    
+    // Draw flows initially
+    drawFlows('all');
+    
+    // Add legend
+    const legend = svg.append('g')
+        .attr('transform', `translate(20, 20)`);
+    
+    // Add title
+    legend.append('text')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('font-weight', 'bold')
+        .attr('fill', '#000000')
+        .text('Regions');
+    
+    // Add legend items
+    Object.entries(regions).forEach(([region, countries], i) => {
+        const legendGroup = legend.append('g')
+            .attr('transform', `translate(0, ${i * 20 + 20})`);
+        
+        legendGroup.append('rect')
+            .attr('width', 15)
+            .attr('height', 15)
+            .attr('fill', regionColors[region]);
+        
+        legendGroup.append('text')
+            .attr('x', 20)
+            .attr('y', 12)
+            .attr('fill', '#000000')
+            .text(region);
+    });
+    
+    // Set up event handlers for controls
+    document.getElementById('map-show-all').addEventListener('click', function() {
+        document.querySelectorAll('#map-panel .btn-group button').forEach(btn => btn.classList.remove('active'));
+        this.classList.add('active');
+        drawFlows('all');
+    });
+    
+    document.getElementById('map-show-exports').addEventListener('click', function() {
+        document.querySelectorAll('#map-panel .btn-group button').forEach(btn => btn.classList.remove('active'));
+        this.classList.add('active');
+        drawFlows('exports');
+    });
+    
+    document.getElementById('map-show-imports').addEventListener('click', function() {
+        document.querySelectorAll('#map-panel .btn-group button').forEach(btn => btn.classList.remove('active'));
+        this.classList.add('active');
+        drawFlows('imports');
+    });
+    
+    document.getElementById('map-country-filter').addEventListener('change', function() {
+        // Get the current flow type
+        let flowType = 'all';
+        if (document.getElementById('map-show-exports').classList.contains('active')) {
+            flowType = 'exports';
+        } else if (document.getElementById('map-show-imports').classList.contains('active')) {
+            flowType = 'imports';
+        }
+        
+        drawFlows(flowType);
+    });
+    
+    document.getElementById('map-animate').addEventListener('change', function() {
+        // Get the current flow type
+        let flowType = 'all';
+        if (document.getElementById('map-show-exports').classList.contains('active')) {
+            flowType = 'exports';
+        } else if (document.getElementById('map-show-imports').classList.contains('active')) {
+            flowType = 'imports';
+        }
+        
+        // Redraw with or without animation
+        drawFlows(flowType);
+    });
+}
+
+// Sector-Based Network Graph
+function createSectorNetworkGraph(tradeData, sectorFilter) {
+    console.log(`Creating sector network graph for ${sectorFilter}...`);
+    const container = document.getElementById('sector-chart');
+    if (!container) {
+        console.error("Sector chart container not found");
+        return;
+    }
+    
+    const width = container.clientWidth;
+    const height = container.clientHeight || 600;
+    
+    // Check if we have sector-specific data or need to simulate it
+    const hasSectorData = tradeData.length > 0 && 'sector' in tradeData[0];
+    
+    // Process the data for the network graph
+    let nodes = [];
+    let links = [];
+    const nodeMap = new Map();
+    
+    if (hasSectorData) {
+        console.log("Using actual sector data");
+        // Filter by sector
+        const filteredData = tradeData.filter(d => d.sector === sectorFilter);
+        
+        // Get the most recent year
+        const years = Array.from(new Set(filteredData.map(d => d.year))).sort();
+        const mostRecentYear = years[years.length - 1];
+        
+        // Further filter by most recent year
+        const yearData = filteredData.filter(d => d.year === mostRecentYear);
+        
+        // Build nodes from unique countries
+        const countries = new Set();
+        yearData.forEach(d => {
+            countries.add(d.reporter);
+            countries.add(d.partner);
+        });
+        
+        nodes = Array.from(countries).map((name, i) => {
+            const node = {
+                id: name,
+                name: name,
+                group: 1,
+                value: 0 // Will be summed below
+            };
+            nodeMap.set(name, node);
+            return node;
+        });
+        
+        // Build links and calculate node values
+        yearData.forEach(d => {
+            // Ensure we have both reporter and partner in our nodes
+            if (!nodeMap.has(d.reporter) || !nodeMap.has(d.partner)) return;
+            
+            // Skip self-links
+            if (d.reporter === d.partner) return;
+            
+            // Check the value threshold if we're not showing all countries
+            if (!document.getElementById('sector-show-all').checked && d.value < 1e9) return;
+            
+            // Update node values
+            nodeMap.get(d.reporter).value += d.value;
+            
+            // Create link
+            links.push({
+                source: d.reporter,
+                target: d.partner,
+                value: d.value
+            });
+        });
+    } else {
+        console.log("Simulating sector data from general trade flows");
+        // Get the most recent year
+        const years = Array.from(new Set(tradeData.map(d => d.year))).sort();
+        const mostRecentYear = years[years.length - 1];
+        
+        // Filter by most recent year
+        const yearData = tradeData.filter(d => d.year === mostRecentYear);
+        
+        // Build nodes from unique countries
+        const countries = new Set();
+        yearData.forEach(d => {
+            countries.add(d.reporter);
+            countries.add(d.partner);
+        });
+        
+        // Predefined node groups by region
+        const regions = {
+            'North America': ['United States', 'Canada', 'Mexico'],
+            'Europe': ['Germany', 'United Kingdom', 'France', 'Italy', 'Spain', 'Netherlands'],
+            'Asia-Pacific': ['China', 'Japan', 'Rep. of Korea', 'Australia', 'India'],
+            'South America': ['Brazil']
+        };
+        
+        // Convert to region indices
+        const regionIndices = {};
+        Object.keys(regions).forEach((region, i) => {
+            regions[region].forEach(country => {
+                regionIndices[country] = i + 1;
+            });
+        });
+        
+        // Only keep major economies
+        const majorEconomies = [
+            'China', 'United States', 'Japan', 'Germany', 'United Kingdom',
+            'France', 'India', 'Italy', 'Brazil', 'Canada', 'Korea, Rep.',
+            'Australia', 'Spain', 'Mexico', 'Indonesia', 'Netherlands',
+            'Saudi Arabia', 'Turkey', 'Switzerland', 'Poland', 'Sweden',
+            'Belgium', 'Thailand', 'Ireland', 'Norway'
+        ];
+        
+        // Create nodes for major economies only
+        nodes = Array.from(countries)
+            .filter(country => {
+                // Only keep major economies or countries that match part of a major economy name
+                return majorEconomies.some(major => 
+                    country.includes(major) || major.includes(country)
+                );
+            })
+            .map((name, i) => {
+                // Determine group from regions
+                let group = 5; // Default group
+                for (const [region, countries] of Object.entries(regions)) {
+                    if (countries.some(c => name.includes(c) || c.includes(name))) {
+                        group = regionIndices[countries.find(c => name.includes(c) || c.includes(name))];
+                        break;
+                    }
+                }
+                
+                const node = {
+                    id: name,
+                    name: name,
+                    group: group,
+                    value: 0 // Will be summed below
+                };
+                nodeMap.set(name, node);
+                return node;
+            });
+        
+        // Sort the flows randomly to simulate different sectors
+        const sortedFlows = [...yearData].sort((a, b) => {
+            // Virtual "sector scores" based on the hash of reporter+partner
+            const hashA = (a.reporter.charCodeAt(0) + a.partner.charCodeAt(0)) % 6;
+            const hashB = (b.reporter.charCodeAt(0) + b.partner.charCodeAt(0)) % 6;
+            
+            // Sectors: 0=agriculture, 1=energy, 2=machinery, 3=automotive, 4=textiles, 5=pharmaceuticals
+            const sectors = ['agriculture', 'energy', 'machinery', 'automotive', 'textiles', 'pharmaceuticals'];
+            const sectorIndex = sectors.indexOf(sectorFilter);
+            
+            // Prefer flows that "match" the requested sector
+            return Math.abs(hashA - sectorIndex) - Math.abs(hashB - sectorIndex);
+        });
+        
+        // Take the top flows for this simulated sector
+        const topFlows = sortedFlows.slice(0, 500);
+        
+        // Build links and calculate node values
+        topFlows.forEach(d => {
+            // Only create links between major economies
+            if (!nodeMap.has(d.reporter) || !nodeMap.has(d.partner)) return;
+            
+            // Skip self-links
+            if (d.reporter === d.partner) return;
+            
+            // Apply a random factor to simulate sector specificity
+            const sectorFactor = 0.5 + Math.random();
+            const adjustedValue = d.flow === 'export' ? d.value * sectorFactor : d.value * sectorFactor;
+            
+            // Update node values
+            nodeMap.get(d.reporter).value += adjustedValue;
+            
+            // Create link
+            links.push({
+                source: d.reporter,
+                target: d.partner,
+                value: adjustedValue
+            });
+        });
+    }
+    
+    // Filter out nodes with no connections if not showing all
+    if (!document.getElementById('sector-show-all').checked) {
+        const connectedNodes = new Set();
+        links.forEach(link => {
+            connectedNodes.add(link.source);
+            connectedNodes.add(link.target);
+        });
+        nodes = nodes.filter(node => connectedNodes.has(node.id));
+    }
+    
+    // Create SVG
+    const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', [0, 0, width, height])
+        .attr('style', 'max-width: 100%; height: auto;');
+    
+    // Define color scale for nodes by group
+    const colorScale = d3.scaleOrdinal()
+        .domain([1, 2, 3, 4, 5])
+        .range(['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6']);
+    
+    // Calculate min and max values for node sizing
+    const nodeValues = nodes.map(d => d.value || 1);
+    const minValue = Math.min(...nodeValues);
+    const maxValue = Math.max(...nodeValues);
+    
+    // Create a size scale for nodes
+    const sizeScale = d3.scaleLinear()
+        .domain([minValue, maxValue])
+        .range([5, 30]);
+    
+    // Create a force simulation
+    const simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id(d => d.id).distance(150))
+        .force('charge', d3.forceManyBody().strength(-800))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(d => Math.max(30, sizeScale(d.value))));
+    
+    // Create links
+    const link = svg.append('g')
+        .attr('stroke', '#999')
+        .attr('stroke-opacity', 0.4)
+        .selectAll('line')
+        .data(links)
+        .join('line')
+        .attr('stroke-width', d => {
+            // Calculate a reasonable stroke width
+            return Math.max(0.5, Math.min(3, Math.log10(d.value || 1) / 4));
+        });
+    
+    // Create nodes
+    const node = svg.append('g')
+        .selectAll('circle')
+        .data(nodes)
+        .join('circle')
+        .attr('r', d => Math.max(5, sizeScale(d.value || 1)))
+        .attr('fill', d => colorScale(d.group))
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 1.5)
+        .style('cursor', 'pointer')
+        .on('mouseover', function(event, d) {
+            // Highlight this node
+            d3.select(this)
+                .attr('stroke', '#000')
+                .attr('stroke-width', 2);
+            
+            // Highlight connected links
+            link.attr('stroke', function(l) {
+                if (l.source.id === d.id || l.target.id === d.id) {
+                    return colorScale(d.group);
+                } else {
+                    return '#999';
+                }
+            })
+            .attr('stroke-opacity', function(l) {
+                return (l.source.id === d.id || l.target.id === d.id) ? 0.8 : 0.1;
+            })
+            .attr('stroke-width', function(l) {
+                if (l.source.id === d.id || l.target.id === d.id) {
+                    return Math.max(1, Math.min(5, Math.log10(l.value || 1) / 3));
+                } else {
+                    return Math.max(0.5, Math.min(2, Math.log10(l.value || 1) / 5));
+                }
+            });
+            
+            // Highlight connected nodes
+            node.attr('opacity', function(n) {
+                if (n.id === d.id) return 1;
+                
+                // Check if connected
+                const connected = links.some(l => 
+                    (l.source.id === d.id && l.target.id === n.id) || 
+                    (l.source.id === n.id && l.target.id === d.id)
+                );
+                
+                return connected ? 1 : 0.3;
+            });
+            
+            // Format value for tooltip
+            const valueFormatter = new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                notation: 'compact',
+                maximumFractionDigits: 1
+            });
+            
+            // Show tooltip
+            const tooltip = d3.select('#tooltip');
+            tooltip.transition()
+                .duration(200)
+                .style('opacity', 0.9)
+                .style('display', 'block');
+            
+            tooltip.html(`
+                <strong>${d.name}</strong><br>
+                ${sectorFilter.charAt(0).toUpperCase() + sectorFilter.slice(1)} Trade Value: ${valueFormatter.format(d.value || 0)}
+            `)
+            .style('left', (event.pageX + 10) + 'px')
+            .style('top', (event.pageY - 28) + 'px');
+        })
+        .on('mouseout', function() {
+            // Restore original appearance
+            d3.select(this)
+                .attr('stroke', '#fff')
+                .attr('stroke-width', 1.5);
+            
+            // Restore all links
+            link.attr('stroke', '#999')
+                .attr('stroke-opacity', 0.4)
+                .attr('stroke-width', d => {
+                    return Math.max(0.5, Math.min(3, Math.log10(d.value || 1) / 4));
+                });
+            
+            // Restore all nodes
+            node.attr('opacity', 1);
+            
+            // Hide tooltip
+            d3.select('#tooltip')
+                .transition()
+                .duration(500)
+                .style('opacity', 0)
+                .style('display', 'none');
+        })
+        .call(d3.drag()
+            .on('start', dragstarted)
+            .on('drag', dragged)
+            .on('end', dragended));
+    
+    // Add labels for nodes
+    const label = svg.append('g')
+        .selectAll('text')
+        .data(nodes)
+        .join('text')
+        .attr('font-size', 10)
+        .attr('font-weight', 'bold')
+        .attr('fill', '#000000')
+        .attr('dy', 4)
+        .attr('dx', d => sizeScale(d.value || 1) + 5)
+        .text(d => d.name)
+        .on('mouseover', function(event, d) {
+            // Trigger the same event on the corresponding node
+            node.filter(n => n.id === d.id).dispatch('mouseover');
+        })
+        .on('mouseout', function(event, d) {
+            // Trigger the same event on the corresponding node
+            node.filter(n => n.id === d.id).dispatch('mouseout');
+        });
+    
+    // Add title based on the sector
+    svg.append('text')
+        .attr('x', 20)
+        .attr('y', 30)
+        .attr('font-size', 16)
+        .attr('font-weight', 'bold')
+        .attr('fill', '#000000')
+        .text(`${sectorFilter.charAt(0).toUpperCase() + sectorFilter.slice(1)} Sector Trade Network`);
+    
+    // Add region legend
+    const legend = svg.append('g')
+        .attr('transform', `translate(${width - 170}, 20)`);
+    
+    const regions = ['North America', 'Europe', 'Asia-Pacific', 'South America', 'Other'];
+    
+    regions.forEach((region, i) => {
+        const legendGroup = legend.append('g')
+            .attr('transform', `translate(0, ${i * 20})`);
+        
+        legendGroup.append('circle')
+            .attr('r', 6)
+            .attr('fill', colorScale(i + 1));
+        
+        legendGroup.append('text')
+            .attr('x', 12)
+            .attr('y', 4)
+            .attr('font-size', 12)
+            .attr('fill', '#000000')
+            .text(region);
+    });
+    
+    // Add simulation tick
+    simulation.on('tick', () => {
+        link
+            .attr('x1', d => d.source.x)
+            .attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x)
+            .attr('y2', d => d.target.y);
+        
+        node
+            .attr('cx', d => d.x)
+            .attr('cy', d => d.y);
+        
+        label
+            .attr('x', d => d.x)
+            .attr('y', d => d.y);
+    });
+    
+    // Drag functions
+    function dragstarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+    
+    function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+    
+    function dragended(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+    }
+    
+    // Add zoom functionality
+    const zoom = d3.zoom()
+        .scaleExtent([0.5, 3])
+        .on('zoom', zoomed);
+    
+    svg.call(zoom);
+    
+    function zoomed(event) {
+        link.attr('transform', event.transform);
+        node.attr('transform', event.transform);
+        label.attr('transform', event.transform);
+    }
 }
