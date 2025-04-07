@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Trade Visualization</title>
+    <!-- D3.js for data visualization -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Bootstrap for responsive layout -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .chart-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 30px;
+            min-height: 600px;
+        }
+        .nav-tabs {
+            margin-bottom: 20px;
+        }
+        .nav-tabs .nav-link {
+            color: #495057;
+            font-weight: 500;
+        }
+        .nav-tabs .nav-link.active {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        #tooltip {
+            position: absolute;
+            padding: 10px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            pointer-events: none;
+            font-size: 14px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            display: none;
+        }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-right: 20px;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            margin-right: 5px;
+            border-radius: 2px;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        .btn-group {
+            margin-right: 15px;
+        }
+        .info-panel {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .insight-panel {
+            background-color: #f1f8ff;
+            padding: 12px;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .insight-panel h5 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .country-flag {
+            width: 24px;
+            height: 16px;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+        .stat-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 15px;
+            margin-bottom: 20px;
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #6c757d;
+        }
+        #network-chart, #chord-chart, #bar-chart {
+            width: 100%;
+            height: 600px;
+        }
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 400px;
+            font-size: 18px;
+            color: #6c757d;
+        }
+        @media (max-width: 768px) {
+            #network-chart, #chord-chart, #bar-chart {
+                height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="py-4">
+            <h1 class="text-center mb-4">Global Trade Visualization</h1>
+            <p class="lead text-center">Explore international trade flows between major economies (2018-2022)</p>
+        </header>
+
+        <div class="info-panel">
+            <h3>About This Visualization</h3>
+            <p>This interactive visualization presents global trade data between 15 major economies from 2018-2022. The data shows bilateral trade flows, highlighting the complex interdependencies of the global economy.</p>
+            <p>Use the different visualization types to explore various aspects of international trade:</p>
+            <ul>
+                <li><strong>Network Graph:</strong> Shows trade relationships between countries, with link thickness representing trade volume</li>
+                <li><strong>Chord Diagram:</strong> Displays bilateral trade flows in a circular layout, highlighting major trading partners</li>
+                <li><strong>Trade Balance:</strong> Compares exports and imports for each country, revealing trade surpluses and deficits</li>
+            </ul>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-value">$15.2T</div>
+                    <div class="stat-label">Total Global Trade Volume</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-value">210</div>
+                    <div class="stat-label">Bilateral Trade Relationships</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <div class="stat-value">15</div>
+                    <div class="stat-label">Major Economies Represented</div>
+                </div>
+            </div>
+        </div>
+
+        <ul class="nav nav-tabs" id="vizTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="network-tab" data-bs-toggle="tab" data-bs-target="#network-panel" type="button" role="tab" aria-controls="network-panel" aria-selected="true">Network Graph</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="chord-tab" data-bs-toggle="tab" data-bs-target="#chord-panel" type="button" role="tab" aria-controls="chord-panel" aria-selected="false">Chord Diagram</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="balance-tab" data-bs-toggle="tab" data-bs-target="#balance-panel" type="button" role="tab" aria-controls="balance-panel" aria-selected="false">Trade Balance</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history-panel" type="button" role="tab" aria-controls="history-panel" aria-selected="false">Historical Trends</button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="vizTabContent">
+            <div class="tab-pane fade show active" id="network-panel" role="tabpanel" aria-labelledby="network-tab">
+                <div class="chart-container">
+                    <div class="insight-panel">
+                        <h5>Economic Analysis</h5>
+                        <p>This network visualization reveals regional trade blocs and trade interdependencies. Each node represents a country, and links represent trade flows. Strong regional clustering can be observed in Europe and Asia-Pacific regions.</p>
+                        <p>Key insights:</p>
+                        <ul>
+                            <li>China is highly interconnected, suggesting its central role in global supply chains</li>
+                            <li>European economies demonstrate dense intra-regional trade networks</li>
+                            <li>The US shows strong bilateral ties with multiple regions, indicating its global trade influence</li>
+                        </ul>
+                    </div>
+                    <div class="controls">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-primary" id="network-zoom-in">Zoom In</button>
+                            <button type="button" class="btn btn-outline-primary" id="network-zoom-out">Zoom Out</button>
+                            <button type="button" class="btn btn-outline-secondary" id="network-reset">Reset</button>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="show-labels" checked>
+                            <label class="form-check-label" for="show-labels">Show Labels</label>
+                        </div>
+                    </div>
+                    <div id="network-chart"></div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="chord-panel" role="tabpanel" aria-labelledby="chord-tab">
+                <div class="chart-container">
+                    <div class="insight-panel">
+                        <h5>Economic Analysis</h5>
+                        <p>The chord diagram illustrates bilateral trade flows, with arc length representing a country's total trade volume. Ribbons between countries indicate the value and direction of bilateral trade.</p>
+                        <p>Key insights:</p>
+                        <ul>
+                            <li>The U.S.-China bilateral trade channel represents the largest global trade relationship, highlighting their economic interdependence despite geopolitical tensions</li>
+                            <li>Germany maintains strong export relationships with multiple European partners, illustrating the country's manufacturing strength and integration in EU value chains</li>
+                            <li>Japan and South Korea show significant trade with China, indicating regional supply chain integration in East Asia</li>
+                        </ul>
+                    </div>
+                    <div class="controls">
+                        <select class="form-select" id="chord-filter" style="width: auto; display: inline-block;">
+                            <option value="all">All Countries</option>
+                            <option value="top5">Top 5 Trading Nations</option>
+                        </select>
+                    </div>
+                    <div id="chord-chart"></div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="balance-panel" role="tabpanel" aria-labelledby="balance-tab">
+                <div class="chart-container">
+                    <div class="insight-panel">
+                        <h5>Economic Analysis</h5>
+                        <p>This chart shows each country's total exports (green), imports (red), and trade balance (blue dots). Positive values above the zero line indicate trade surpluses, while negative values below represent deficits.</p>
+                        <p>Key insights:</p>
+                        <ul>
+                            <li>China and Germany maintain significant trade surpluses, indicative of their export-oriented economic models</li>
+                            <li>The United States shows the largest trade deficit, reflecting its consumption-driven economy and status as a primary global market</li>
+                            <li>The Netherlands and Korea have strategically balanced trade positions despite being relatively smaller economies</li>
+                        </ul>
+                        <p>Persistent trade imbalances can indicate structural economic factors such as productivity differences, currency valuation issues, or trade policy impacts.</p>
+                    </div>
+                    <div class="controls">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-primary active" id="sort-name">Sort by Name</button>
+                            <button type="button" class="btn btn-outline-primary" id="sort-exports">Sort by Exports</button>
+                            <button type="button" class="btn btn-outline-primary" id="sort-imports">Sort by Imports</button>
+                            <button type="button" class="btn btn-outline-primary" id="sort-balance">Sort by Balance</button>
+                        </div>
+                    </div>
+                    <div id="bar-chart"></div>
+                </div>
+            </div>
+            <div class="tab-pane fade" id="history-panel" role="tabpanel" aria-labelledby="history-tab">
+                <div class="chart-container">
+                    <div class="insight-panel">
+                        <h5>Economic Analysis</h5>
+                        <p>This historical chart tracks the evolution of trading power for major economies from 2018 to 2022. It reveals how countries' trade positions have changed over time.</p>
+                        <p>Key insights:</p>
+                        <ul>
+                            <li>Changes in total trade volume show which economies are gaining or losing trade prominence</li>
+                            <li>Trade balance trends indicate shifting trade competitiveness</li>
+                            <li>Trade openness fluctuations reveal changing dependencies on international trade</li>
+                        </ul>
+                    </div>
+                    <div class="controls">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-primary active" id="metric-volume">Total Trade Volume</button>
+                            <button type="button" class="btn btn-outline-primary" id="metric-balance">Trade Balance</button>
+                            <button type="button" class="btn btn-outline-primary" id="metric-openness">Trade Openness</button>
+                        </div>
+                        <select class="form-select ms-3" id="history-filter" style="width: auto; display: inline-block;">
+                            <option value="all">All Countries</option>
+                            <option value="top5">Top 5 Trading Nations</option>
+                            <option value="regions">By Region</option>
+                        </select>
+                    </div>
+                    <div id="history-chart" style="width: 100%; height: 600px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-5">
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h3>Top Exporters</h3>
+                    <div class="insight-panel">
+                        <h5>Export Patterns</h5>
+                        <p>China and the United States dominate global exports, but specialized European economies like Germany and the Netherlands show remarkable export efficiency relative to their economic size.</p>
+                        <p>High export volumes often indicate strong manufacturing bases, technological competitiveness, and integration into global value chains.</p>
+                    </div>
+                    <div id="top-exporters-chart"></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h3>Top Importers</h3>
+                    <div class="insight-panel">
+                        <h5>Import Patterns</h5>
+                        <p>The United States leads global imports by a significant margin, reflecting its large consumer market and appetite for foreign goods. China's high import volume is driven primarily by raw materials and intermediate goods for manufacturing.</p>
+                        <p>Import patterns can reveal domestic consumption strength, industrial capacity, and resource dependencies.</p>
+                    </div>
+                    <div id="top-importers-chart"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container mt-4">
+            <h3>Economic Insights</h3>
+            <div class="row">
+                <div class="col-md-6">
+                    <h4>Trade Relationship Dynamics</h4>
+                    <ul>
+                        <li>China has overtaken the United States as the central node in global trade networks, with its exports accounting for approximately 15% of global exports</li>
+                        <li>European internal trade remains remarkably resilient, with approximately 60% of EU exports going to other EU countries</li>
+                        <li>Trade relationships with India show the highest growth rates, suggesting increasing integration into global supply chains</li>
+                        <li>Regional economic integration (USMCA, EU, RCEP) is clearly evident in preferential trading patterns</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h4>Policy Implications</h4>
+                    <ul>
+                        <li>The high concentration of trade flows suggests potential systemic vulnerabilities to trade disruptions</li>
+                        <li>Germany's export surplus (approximately 7% of GDP) reflects structural competitiveness but may contribute to global imbalances</li>
+                        <li>The U.S. trade deficit (approximately 3.5% of GDP) is sustainable due to the dollar's reserve currency status</li>
+                        <li>Emerging regionalization trends may indicate a shift away from hyper-globalization toward more localized supply chains</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="row mt-4">
+                <div class="col-12">
+                    <div class="insight-panel">
+                        <h5>Global Trade Trends (2018-2022)</h5>
+                        <p>The data reveals several significant trends in international trade over the five-year period:</p>
+                        <ol>
+                            <li><strong>Supply Chain Regionalization:</strong> Trade networks are showing signs of regionalization, with increased intra-regional trade in East Asia, North America, and Europe.</li>
+                            <li><strong>Changing Chinese Role:</strong> China's role is evolving from primarily an exporter to a more balanced trade participant with growing imports, particularly in high-technology and service sectors.</li>
+                            <li><strong>Services Trade Growth:</strong> While not fully captured in merchandise trade data, complementary evidence suggests rapid growth in digital services trade.</li>
+                            <li><strong>Pandemic Impacts:</strong> The COVID-19 pandemic (2020-2021) caused significant disruptions in trade patterns, particularly affecting complex manufacturing supply chains.</li>
+                            <li><strong>Trade Policy Turbulence:</strong> Increased tariffs and trade barriers have altered some bilateral relationships, most notably between the U.S. and China.</li>
+                        </ol>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-5 text-center text-muted">
+            <p>Data source: UN Comtrade Database | Analysis period: 2018-2022</p>
+        </footer>
+
+        <div id="tooltip"></div>
+    </div>
+
+    <!-- Visualization script -->
+    <script src="visualization.js"></script>
+</body>
+</html>
