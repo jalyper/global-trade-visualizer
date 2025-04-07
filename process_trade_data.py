@@ -7,6 +7,7 @@ import json
 import pandas as pd
 import os
 from collections import defaultdict
+import numpy as np
 
 def load_country_mapping():
     """Load the country code to name mapping."""
@@ -206,5 +207,98 @@ def process_yearly_data():
     
     return trade_summary_df, matrix_json, trade_network
 
+def create_sector_data():
+    """
+    Generate sector-specific trade data for visualization.
+    Creates simulated data for 6 key sectors based on the overall trade patterns.
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs('data/processed', exist_ok=True)
+    
+    # Try to load existing trade flows
+    try:
+        trade_flows_df = pd.read_csv('data/processed/trade_flows_raw.csv')
+    except:
+        # If not available, process data first
+        process_yearly_data()
+        trade_flows_df = pd.read_csv('data/processed/trade_flows_raw.csv')
+    
+    # Define sectors
+    sectors = ['agriculture', 'energy', 'machinery', 'automotive', 'textiles', 'pharmaceuticals']
+    
+    # Get unique countries
+    countries = trade_flows_df['reporter'].unique()
+    
+    # Get most recent year
+    most_recent_year = trade_flows_df['year'].max()
+    recent_flows = trade_flows_df[trade_flows_df['year'] == most_recent_year]
+    
+    # Create sector data with weighted values for each sector
+    sector_data = []
+    
+    for sector in sectors:
+        # Use a different random seed for each sector to ensure different patterns
+        np.random.seed(sectors.index(sector))
+        
+        for _, flow in recent_flows.iterrows():
+            # Skip small flows and non-export flows
+            if flow['value'] < 1e8 or flow['flow'] != 'export':
+                continue
+                
+            # Add some randomness to make sectors different
+            sector_factor = 0.2 + np.random.random() * 1.5
+            
+            # Some sectors are dominant for certain country pairs
+            reporter = flow['reporter']
+            partner = flow['partner']
+            
+            # Add sector-specific weightings
+            if sector == 'agriculture':
+                # Higher for agricultural exporters
+                if reporter in ['Brazil', 'Australia', 'Netherlands']:
+                    sector_factor *= 1.5
+            elif sector == 'energy':
+                # Higher for energy exporters
+                if reporter in ['United States', 'Canada', 'Australia']:
+                    sector_factor *= 2.0
+            elif sector == 'machinery':
+                # Higher for industrial exporters
+                if reporter in ['Germany', 'Japan', 'China']:
+                    sector_factor *= 1.8
+            elif sector == 'automotive':
+                # Higher for car manufacturing countries
+                if reporter in ['Germany', 'Japan', 'United States', 'Korea, Rep.']:
+                    sector_factor *= 1.7
+            elif sector == 'textiles':
+                # Higher for textile exporters
+                if reporter in ['China', 'India', 'Italy']:
+                    sector_factor *= 1.6
+            elif sector == 'pharmaceuticals':
+                # Higher for pharmaceutical exporters
+                if reporter in ['United States', 'Germany', 'Switzerland']:
+                    sector_factor *= 2.0
+            
+            # Only include some flows to avoid overcrowding
+            if np.random.random() > 0.6:
+                sector_data.append({
+                    'sector': sector,
+                    'reporter': reporter,
+                    'partner': partner,
+                    'reporter_code': flow['reporter_code'],
+                    'partner_code': flow['partner_code'],
+                    'value': flow['value'] * sector_factor,
+                    'year': most_recent_year,
+                    'flow': 'export'
+                })
+    
+    # Convert to dataframe and save
+    sector_df = pd.DataFrame(sector_data)
+    sector_df.to_csv('data/processed/sector_trade_flows.csv', index=False)
+    
+    print(f"Created sector data with {len(sector_data)} records across {len(sectors)} sectors")
+    
+    return sector_df
+
 if __name__ == "__main__":
-    process_yearly_data() 
+    process_yearly_data()
+    create_sector_data() 
