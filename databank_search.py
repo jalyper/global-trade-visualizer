@@ -22,6 +22,9 @@ def fetch_trade_data():
     today = date.today()
     lastweek = today - timedelta(days=7)
     
+    # Get years (last 10 years)
+    years = [str(year) for year in range(today.year - 10, today.year)]
+    
     # Major trading countries (ISO3 codes)
     countries = [
         'USA', 'CHN', 'DEU', 'JPN', 'GBR',  # Top 5
@@ -36,9 +39,6 @@ def fetch_trade_data():
     # Trade flows to fetch (M=Imports, X=Exports)
     flows = ['M', 'X']
     flow_names = {'M': 'imports', 'X': 'exports'}
-    
-    # Years to fetch (last 5 years)
-    years = [str(year) for year in range(2018, 2023)]
     
     # Create a directory for yearly data
     os.makedirs('data_sources/yearly', exist_ok=True)

@@ -143,7 +143,7 @@
     <div class="container">
         <header class="py-4">
             <h1 class="text-center mb-4">Global Trade Visualization</h1>
-            <p class="lead text-center">Explore international trade flows between major economies (2018-2022)</p>
+            <p class="lead text-center" id="year-range">Explore international trade flows between major economies</p>
         </header>
 
         <div class="info-panel">
@@ -436,5 +436,13 @@
 
     <!-- Visualization script -->
     <script src="visualization.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const currentYear = new Date().getFullYear();
+            const startYear = currentYear - 10;
+            document.getElementById('year-range').textContent = 
+                `Explore international trade flows between major economies (${startYear}-${currentYear})`;
+        });
+    </script>
 </body>
 </html>
