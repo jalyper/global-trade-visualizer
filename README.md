@@ -1,6 +1,6 @@
 # Global Trade Visualization
 
-An interactive visualization of global trade data between 15 major economies from 2018-2022, built with HTML, JavaScript, and D3.js.
+An interactive visualization of global trade data between 15 major economies from 2015-2025, built with HTML, JavaScript, and D3.js.
 
 ## Live Demo
 Visit [https://jalyper.github.io/global-trade-visualizer/](https://jalyper.github.io/global-trade-visualizer/) to see the visualization in action.

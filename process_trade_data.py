@@ -34,7 +34,7 @@ def process_yearly_data():
     yearly_data = defaultdict(lambda: defaultdict(lambda: {'imports': 0, 'exports': 0}))
     
     # Process each year's data
-    for year in range(2018, 2023):
+    for year in range(2015, 2026):
         year_file = f'data_sources/yearly/trade_data_{year}.json'
         if not os.path.exists(year_file):
             continue

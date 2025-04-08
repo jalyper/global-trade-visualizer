@@ -85,7 +85,7 @@ def fetch_trade_data():
                     "importer_code": importer["code"],
                     "importer_name": importer["name"],
                     "trade_value_usd": trade_value,
-                    "year": 2023
+                    "year": 2025
                 })
     
     # Convert to DataFrame
